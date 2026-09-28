@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="theme-color" content="#132e29" />
+    <title>UMBRAL · La selva respira</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%23132e29'/%3E%3Cpath d='M15 47C8 15 34 8 51 12C54 40 35 54 15 47M15 47L40 22' fill='none' stroke='%23dbbb79' stroke-width='3'/%3E%3C/svg%3E"
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600&family=DM+Sans:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css?v=umbral-expedition-5" />
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+          "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <div id="world" aria-label="Selva tropical en tres dimensiones"></div>
+    <div class="film" aria-hidden="true"></div>
+    <div id="hurt" aria-hidden="true"></div>
+    <section id="welcome" class="screen">
+      <header class="masthead">
+        <a class="wordmark" href="#"
+          >UMBRAL<span>ESTUDIO DE UN MUNDO VIVO</span></a
+        ><span class="edition">EXPEDICIÓN 01 / SELVA TROPICAL</span>
+      </header>
+      <div class="hero">
+        <div class="eyebrow"><i></i> CHIAPAS, MÉXICO · 06:24 H</div>
+        <h1>La selva<br /><em>respira.</em></h1>
+        <p>
+          No estás solo en este mundo.<br />Cada vida sostiene otra. También la
+          tuya.
+        </p>
+        <div class="hero-actions">
+          <button id="start" class="primary" disabled>
+            Preparando la expedición…</button
+          ><button id="explore" class="text-button" disabled>
+            Explorar sin peligro ↗
+          </button>
+        </div>
+        <div class="intro-note">
+          <span>01</span>
+          <p>
+            Observa. Comprende. Protege.<br /><small
+              >Una experiencia de supervivencia ecológica.</small
+            >
+          </p>
+        </div>
+      </div>
+      <aside class="intro-card">
+        <span class="eyebrow">TU MISIÓN</span>
+        <h2>Deja el bosque<br />más vivo.</h2>
+        <p>
+          Descubre tres estaciones, registra especies y reúne suministros.
+          Planta dos árboles y vuelve a tu campamento para completar la ruta.
+        </p>
+        <div class="card-rule"></div>
+        <div class="mini-controls">
+          <span><kbd>W A S D</kbd> caminar</span
+          ><span><kbd>E</kbd> investigar</span><span><kbd>J</kbd> cuaderno</span
+          ><span>◉ mando compatible</span>
+        </div>
+      </aside>
+      <footer class="intro-footer">
+        <span>DESARROLLO SUSTENTABLE / ECOSISTEMAS EN ACCIÓN</span
+        ><label
+          >Calidad gráfica
+          <select id="quality">
+            <option value="high">Alta</option>
+            <option value="medium" selected>Equilibrada</option>
+            <option value="low">Ligera</option>
+          </select></label
+        ><span id="load-status">Construyendo una selva viva…</span>
+      </footer>
+    </section>
+
+    <section id="hud" hidden>
+      <div class="hud-brand">
+        UMBRAL<small id="region">SELVA HÚMEDA · CHIAPAS</small>
+      </div>
+      <div class="compass">
+        <span>O</span><i></i><strong id="heading">N</strong><i></i
+        ><span>E</span>
+      </div>
+      <div class="environment">
+        <span id="day">DÍA 01 · 06:24</span
+        ><strong id="weather">Bruma de la mañana</strong
+        ><small id="temperature">26 °C · 88% humedad</small>
+      </div>
+      <div id="mission">
+        <span class="eyebrow">CUADERNO DE EXPEDICIÓN</span>
+        <h3 id="mission-title">Aprende a mirar</h3>
+        <p id="mission-copy">Investiga tres especies distintas con E.</p>
+        <div id="mission-progress"></div>
+        <p id="expedition-guide"></p>
+        <small id="expedition-score"></small>
+      </div>
+      <div class="vitals">
+        <div class="vital">
+          <span>✚ <label>SALUD</label></span
+          ><b id="health-value">100</b>
+          <div><i id="health-bar"></i></div>
+        </div>
+        <div class="vital">
+          <span>◌ <label>OXÍGENO / RESISTENCIA</label></span
+          ><b id="oxygen-value">100</b>
+          <div><i id="oxygen-bar"></i></div>
+        </div>
+        <div class="vital">
+          <span>◒ <label>ALIMENTO</label></span
+          ><b id="food-value">100</b>
+          <div><i id="food-bar"></i></div>
+        </div>
+      </div>
+      <div class="eco-indicator">
+        <svg viewBox="0 0 44 44">
+          <circle cx="22" cy="22" r="18" />
+          <circle id="eco-ring" cx="22" cy="22" r="18" />
+        </svg>
+        <div>
+          <strong id="eco-value">100<small>%</small></strong
+          ><span>EQUILIBRIO</span>
+        </div>
+      </div>
+      <div class="pack">
+        <span>╱ <b id="wood">0</b> madera</span
+        ><span>〰 <b id="fiber">0</b> fibra</span
+        ><span>● <b id="fruit">0</b> fruta</span
+        ><span>✧ <b id="seeds">2</b> semillas</span>
+      </div>
+      <div id="reticle">·</div>
+      <div id="interact-hint" hidden></div>
+      <div id="status-tags"></div>
+      <nav class="quickbar">
+        <button id="journal-button"><kbd>J</kbd> Cuaderno</button
+        ><button id="build-button"><kbd>B</kbd> Refugio</button
+        ><button id="plant-button"><kbd>P</kbd> Plantar</button
+        ><button id="eat-button"><kbd>C</kbd> Comer</button
+        ><button id="audio-button" aria-label="Silenciar sonido">♫</button
+        ><button id="pause-button" aria-label="Pausar">Ⅱ</button>
+      </nav>
+      <div id="move-hint">
+        WASD caminar · Shift correr · F defender · Esc pausa
+      </div>
+    </section>
+
+    <section
+      id="dialog"
+      class="overlay"
+      hidden
+      aria-modal="true"
+      role="dialog"
+      aria-labelledby="dialog-title"
+    >
+      <article class="field-card">
+        <button id="dialog-close" class="close" aria-label="Cerrar">×</button>
+        <p id="dialog-category" class="eyebrow"></p>
+        <h2 id="dialog-title"></h2>
+        <p id="dialog-latin" class="latin"></p>
+        <p id="dialog-body"></p>
+        <div id="dialog-fact" class="field-note"></div>
+        <div id="dialog-actions"></div>
+        <small class="dialog-hint"
+          >Esc volver · Mando: ↑↓ elegir / A aceptar / B cerrar</small
+        >
+      </article>
+    </section>
+
+    <section id="pause" class="overlay" hidden>
+      <article class="field-card pause-card">
+        <span class="eyebrow">LA EXPEDICIÓN ESPERA</span>
+        <h2>Un respiro.</h2>
+        <p>El mundo está detenido.</p>
+        <div class="pause-settings">
+          <label for="quality-pause">Calidad gráfica</label>
+          <select id="quality-pause">
+            <option value="high">Alta</option>
+            <option value="medium" selected>Equilibrada</option>
+            <option value="low">Ligera</option>
+          </select>
+          <label class="auto-setting"
+            ><input id="auto-quality" type="checkbox" checked /> Ajustar
+            automáticamente si baja la fluidez</label
+          >
+        </div>
+        <button id="resume" class="primary">
+          Continuar explorando <span>→</span></button
+        ><button id="pause-journal" class="secondary">
+          Abrir cuaderno de campo</button
+        ><button id="restart" class="text-button">
+          Comenzar una nueva expedición
+        </button>
+        <p class="help">
+          WASD · ratón para mirar · E investigar<br />F lanza · C comer · P
+          plantar · B construir<br />M silenciar · J cuaderno · Esc pausa<br /><br />Mando:
+          sticks mover / mirar · A investigar · X construir<br />Y plantar · B
+          defender · LB correr · RT comer<br />View cuaderno · Start pausa
+        </p>
+      </article>
+    </section>
+
+    <section
+      id="journal"
+      class="overlay journal-overlay"
+      hidden
+      aria-label="Cuaderno de campo"
+    >
+      <article class="journal">
+        <header>
+          <div>
+            <span class="eyebrow">ARCHIVO DE EXPEDICIÓN / 01</span>
+            <h2>El bosque conectado</h2>
+          </div>
+          <button id="journal-close" class="close" aria-label="Cerrar cuaderno">
+            ×
+          </button>
+        </header>
+        <nav class="tabs">
+          <button data-page="identity" class="selected">La selva</button
+          ><button data-page="network">Red de vida</button
+          ><button data-page="scenarios">¿Qué pasaría si…?</button
+          ><button data-page="discoveries">Hallazgos</button>
+        </nav>
+        <div id="journal-content"></div>
+        <footer>
+          MODELO DIDÁCTICO · Las escalas de tiempo y respuesta están comprimidas
+          para jugar.
+        </footer>
+      </article>
+    </section>
+
+    <section id="ending" class="overlay" hidden>
+      <article class="field-card">
+        <span id="ending-label" class="eyebrow"></span>
+        <h2 id="ending-title"></h2>
+        <p id="ending-copy"></p>
+        <div id="ending-stats" class="result-grid"></div>
+        <button id="continue" class="primary">Seguir explorando →</button
+        ><button id="retry" class="secondary">Nueva expedición</button>
+      </article>
+    </section>
+    <div id="toast" role="status" aria-live="polite"></div>
+    <div id="fatal" class="overlay" hidden>
+      <article class="field-card">
+        <h2>No pudimos abrir la selva.</h2>
+        <p id="fatal-message">
+          Comprueba la conexión a internet y abre el juego con un servidor
+          local.
+        </p>
+        <button onclick="location.reload()" class="primary">Reintentar</button>
+      </article>
+    </div>
+    <script type="module">
+      import("./game.js?v=umbral-expedition-5").catch((error) => {
+        document.getElementById("fatal").hidden = false;
+        document.getElementById("fatal-message").textContent =
+          "No se pudo cargar el juego. Abre esta carpeta con Live Server y comprueba tu conexión a internet. " +
+          error.message;
+      });
+    </script>
+  </body>
+</html>

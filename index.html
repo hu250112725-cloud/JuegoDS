@@ -137,13 +137,20 @@
         <span>╱ <b id="wood">0</b> madera</span
         ><span>〰 <b id="fiber">0</b> fibra</span
         ><span>● <b id="fruit">0</b> fruta</span
-        ><span>✧ <b id="seeds">2</b> semillas</span>
+        ><span>✧ <b id="seeds">2</b> semillas</span
+        ><span>🥩 <b id="meat">0</b> carne</span
+        ><span>🦴 <b id="hides">0</b> pieles</span
+        ><span>◈ <b id="ammo">8</b> cartuchos</span>
       </div>
       <div id="reticle">·</div>
+      <div id="shot-feedback" aria-live="polite"></div>
+      <div id="weapon-status"></div>
+      <div id="guardian-status"></div>
       <div id="interact-hint" hidden></div>
       <div id="status-tags"></div>
       <nav class="quickbar">
-        <button id="journal-button"><kbd>J</kbd> Cuaderno</button
+        <button id="inventory-button"><kbd>I</kbd> Inventario</button
+        ><button id="journal-button"><kbd>J</kbd> Cuaderno</button
         ><button id="build-button"><kbd>B</kbd> Refugio</button
         ><button id="plant-button"><kbd>P</kbd> Plantar</button
         ><button id="eat-button"><kbd>C</kbd> Comer</button
@@ -151,7 +158,7 @@
         ><button id="pause-button" aria-label="Pausar">Ⅱ</button>
       </nav>
       <div id="move-hint">
-        WASD caminar · Shift correr · F defender · Esc pausa
+        WASD caminar · Clic / F disparar · R recargar · H llamar al Lorax · I mochila · E interactuar
       </div>
     </section>
 
@@ -198,14 +205,15 @@
           Continuar explorando <span>→</span></button
         ><button id="pause-journal" class="secondary">
           Abrir cuaderno de campo</button
+        ><button id="pause-inventory" class="secondary">Abrir inventario</button
         ><button id="restart" class="text-button">
           Comenzar una nueva expedición
         </button>
         <p class="help">
-          WASD · ratón para mirar · E investigar<br />F lanza · C comer · P
+          WASD · ratón para mirar · E investigar<br />Clic / F escopeta · R recargar · I inventario<br />H llamar al Lorax (1 fruta) · C comer · P
           plantar · B construir<br />M silenciar · J cuaderno · Esc pausa<br /><br />Mando:
           sticks mover / mirar · A investigar · X construir<br />Y plantar · B
-          defender · LB correr · RT comer<br />View cuaderno · Start pausa
+          disparar · RB recargar · L3 inventario<br />Cruceta ↑ llamar al Lorax · LB correr · RT comer<br />View cuaderno · Start pausa
         </p>
       </article>
     </section>
@@ -240,6 +248,37 @@
       </article>
     </section>
 
+    <section
+      id="inventory"
+      class="overlay inventory-overlay"
+      hidden
+      aria-label="Inventario de Expedición"
+    >
+      <article class="inventory-card">
+        <header class="inventory-header">
+          <div>
+            <span class="eyebrow">SUMINISTROS Y HERRAMIENTAS</span>
+            <h2>Inventario de Campo</h2>
+          </div>
+          <button id="inventory-close" class="close" aria-label="Cerrar inventario">×</button>
+        </header>
+        <div class="inventory-body">
+          <div id="inventory-items" class="inventory-grid"></div>
+          <div id="inventory-detail" class="inventory-detail">
+            <h3>Preparar y recuperar</h3>
+            <p id="inventory-status"></p>
+            <div id="inventory-recipes" class="inventory-actions"></div>
+            <h3>Tu impacto</h3>
+            <p id="inventory-consequence"></p>
+            <p>La carne cruda se cocina en la fogata. Los cartuchos se encuentran en puestos de expedición; no se fabrican con recursos del bosque.</p>
+          </div>
+        </div>
+        <footer>
+          <small>I abre/cierra · Esc cierra · Mando: L3 abre / B cierra · El mundo se pausa en la mochila.</small>
+        </footer>
+      </article>
+    </section>
+
     <section id="ending" class="overlay" hidden>
       <article class="field-card">
         <span id="ending-label" class="eyebrow"></span>
@@ -262,7 +301,7 @@
       </article>
     </div>
     <script type="module">
-      import("./game.js?v=umbral-expedition-5").catch((error) => {
+      import("./game.js?v=umbral-guardian-6").catch((error) => {
         document.getElementById("fatal").hidden = false;
         document.getElementById("fatal-message").textContent =
           "No se pudo cargar el juego. Abre esta carpeta con Live Server y comprueba tu conexión a internet. " +

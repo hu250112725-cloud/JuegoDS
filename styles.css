@@ -920,3 +920,153 @@ select {
     font-size: 13px;
   }
 }
+
+/* ---------- Inventario Visual & Panel de Control ---------- */
+.inventory-overlay {
+  background: rgba(8, 20, 16, 0.88);
+  backdrop-filter: blur(12px);
+}
+.inventory-card {
+  position: relative;
+  max-height: 92vh;
+  overflow-y: auto;
+  width: min(720px, 94vw);
+  background: radial-gradient(circle at top left, rgba(23, 62, 49, 0.95), rgba(12, 31, 26, 0.98));
+  border: 1px solid rgba(214, 181, 117, 0.35);
+  border-radius: 12px;
+  padding: 24px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6);
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  color: var(--paper);
+}
+.inventory-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid rgba(214, 181, 117, 0.2);
+  padding-bottom: 12px;
+}
+.inventory-header h2 {
+  font-family: var(--serif);
+  font-size: 26px;
+  margin: 4px 0 0 0;
+  color: var(--gold);
+}
+.inventory-body {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  gap: 20px;
+}
+@media (max-width: 640px) {
+  .inventory-body {
+    grid-template-columns: 1fr;
+  }
+}
+.inventory-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  background: rgba(0, 0, 0, 0.25);
+  padding: 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.inventory-item { display:flex; flex-direction:column; gap:9px; padding:10px; background:#274438; border:1px solid #d6b57533; border-radius:6px; font-size:11px; overflow-wrap:anywhere; }
+.inventory-item strong { font:28px var(--serif); color:var(--gold); }
+.inventory-item button { padding:6px; background:#e8ddbc; color:#132b25; border:0; border-radius:3px; }
+.inventory-card button:disabled { cursor:not-allowed; }
+#weapon-status { position:absolute; bottom:79px; right:32px; font-size:11px; color:var(--paper); background:#10251cbb; padding:8px 12px; }
+#guardian-status { position:absolute; top:115px; right:32px; max-width:250px; text-align:right; font-size:10px; color:var(--gold); }
+#shot-feedback { position:absolute; top:52%; left:50%; transform:translateX(-50%); color:#ffe0a1; font-size:13px; }
+#move-hint { max-width:44vw; line-height:1.6; }
+@media(max-width:850px) { .pack { max-width:55vw; flex-wrap:wrap; row-gap:8px; bottom:75px; } .vitals { bottom:160px; } #weapon-status { right:15px; bottom:115px; max-width:35vw; } }
+.inv-slot {
+  aspect-ratio: 1;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(214, 181, 117, 0.2);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  user-select: none;
+}
+.inv-slot:hover {
+  background: rgba(214, 181, 117, 0.15);
+  border-color: var(--gold);
+  transform: translateY(-2px);
+}
+.inv-slot.selected {
+  background: rgba(214, 181, 117, 0.25);
+  border-color: var(--gold);
+  box-shadow: 0 0 10px rgba(214, 181, 117, 0.3);
+}
+.inv-slot .icon {
+  font-size: 24px;
+}
+.inv-slot .count {
+  position: absolute;
+  bottom: 4px;
+  right: 6px;
+  font-weight: 700;
+  font-size: 11px;
+  color: var(--paper);
+  background: rgba(0, 0, 0, 0.6);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+.inventory-detail {
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+.inventory-detail h3 {
+  font-family: var(--serif);
+  font-size: 20px;
+  margin: 0 0 8px 0;
+  color: var(--gold);
+}
+.inventory-detail p {
+  font-size: 13px;
+  line-height: 1.45;
+  color: rgba(239, 233, 214, 0.85);
+  margin: 0 0 16px 0;
+}
+.inventory-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.inventory-actions button {
+  background: rgba(214, 181, 117, 0.18);
+  border: 1px solid var(--gold);
+  color: var(--paper);
+  padding: 8px 14px;
+  border-radius: 6px;
+  font-weight: 600;
+  font-size: 12px;
+  transition: all 0.2s ease;
+}
+.inventory-actions button:hover {
+  background: var(--gold);
+  color: var(--forest);
+}
+
+/* Modo Crisis y Alerta Lorax */
+.eco-indicator.crisis #eco-ring {
+  stroke: #ff3b30 !important;
+  animation: pulse-eco 1s infinite alternate;
+}
+@keyframes pulse-eco {
+  from { opacity: 0.6; }
+  to { opacity: 1.0; filter: drop-shadow(0 0 8px #ff3b30); }
+}

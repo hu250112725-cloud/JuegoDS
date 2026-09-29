@@ -36,6 +36,24 @@ const state = {
   fiber: 0,
   fruit: 0,
   seeds: 2,
+  meat: 0,
+  hides: 0,
+  ammo: 8,
+  loaded: 2,
+  reloadTime: 0,
+  shotCooldown: 0,
+  cookedMeat: 0,
+  bandages: 1,
+  wildlifeLoss: 0,
+  disperserLoss: 0,
+  predatorLoss: 0,
+  restoration: 0,
+  guardianQuest: null,
+  guardianGifts: 0,
+  guardianRewards: 0,
+  lastConsequence: 'El bosque conserva sus relaciones.',
+  loraxAnger: 0,
+  loraxMode: "pacific",
   planted: 0,
   cut: 0,
   hunted: 0,
@@ -1693,11 +1711,12 @@ for (const [x, z] of [
 // ---------- Audio sintetizado, activado únicamente tras un gesto ----------
 class ForestAudio {
   init() {
-    if (this.ctx) return;
+    if (this.ctx) { this.unlock(); return; }
     this.ctx = new (window.AudioContext || window.webkitAudioContext)();
     this.master = this.ctx.createGain();
-    this.master.gain.value = 0.2;
-    this.master.connect(this.ctx.destination);
+    this.master.gain.value = state.muted ? 0 : .65;
+    this.limiter = this.ctx.createDynamicsCompressor();
+    this.master.connect(this.limiter).connect(this.ctx.destination);
     const n = this.ctx.createBuffer(
         1,
         this.ctx.sampleRate * 3,
@@ -1714,10 +1733,14 @@ class ForestAudio {
     filter.type = "lowpass";
     filter.frequency.value = 650;
     this.ambient = this.ctx.createGain();
-    this.ambient.gain.value = 0.16;
+    this.ambient.gain.value = .38;
     src.connect(filter).connect(this.ambient).connect(this.master);
     src.start();
-    this.ctx.resume();
+    this.unlock();
+  }
+  unlock() {
+    if (this.ctx && this.ctx.state !== 'running' && this.ctx.state !== 'closed')
+      this.ctx.resume().catch(() => toast('Pulsa ♫ para activar el audio del navegador.'));
   }
   tone(f, d = 0.15, volume = 0.15, slide = 0, type = "sine") {
     if (!this.ctx) return;
@@ -1747,11 +1770,43 @@ class ForestAudio {
     s.start();
     s.stop(this.ctx.currentTime + d);
   }
+  gunshot() {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    const sub = this.ctx.createOscillator();
+    const subGain = this.ctx.createGain();
+    sub.type = "sine";
+    sub.frequency.setValueAtTime(180, t);
+    sub.frequency.exponentialRampToValueAtTime(30, t + 0.2);
+    subGain.gain.setValueAtTime(0.65, t);
+    subGain.gain.exponentialRampToValueAtTime(0.001, t + 0.2);
+    sub.connect(subGain).connect(this.master);
+    sub.start();
+    sub.stop(t + 0.2);
+
+    const s = this.ctx.createBufferSource();
+    const g = this.ctx.createGain();
+    const filter = this.ctx.createBiquadFilter();
+    s.buffer = this.noise;
+    filter.type = "bandpass";
+    filter.frequency.value = 1600;
+    filter.Q.value = 1.0;
+    g.gain.setValueAtTime(0.7, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.28);
+    s.connect(filter).connect(g).connect(this.master);
+    s.start();
+    s.stop(t + 0.28);
+  }
+  gunClick() {
+    if (!this.ctx) return;
+    this.tone(1200, 0.05, 0.12, -800, "square");
+  }
   mute() {
+    this.init();
     state.muted = !state.muted;
     if (this.ctx)
       this.master.gain.setTargetAtTime(
-        state.muted ? 0 : 0.2,
+        state.muted ? 0 : .65,
         this.ctx.currentTime,
         0.1,
       );
@@ -1759,9 +1814,13 @@ class ForestAudio {
     $("audio-button").ariaLabel = state.muted
       ? "Activar sonido"
       : "Silenciar sonido";
+    if (!state.muted) this.tone(660,.18,.16,180);
   }
 }
 const sound = new ForestAudio();
+// Browsers can suspend audio after tab changes; trusted input unlocks it again.
+document.addEventListener('pointerdown', () => sound.unlock(), { capture: true });
+document.addEventListener('keydown', () => sound.unlock(), { capture: true });
 
 // ---------- Fauna articulada y fichas de observación ----------
 const species = {
@@ -2113,11 +2172,69 @@ function makeAnimal(kind, x, z) {
     phase: rand(0, TAU),
     active: true,
     hostile: ["jaguar", "caiman", "serpiente"].includes(kind),
+    hp: ["jaguar", "caiman"].includes(kind) ? 80 : kind === "tapir" ? 60 : 35,
+    maxHp: ["jaguar", "caiman"].includes(kind) ? 80 : kind === "tapir" ? 60 : 35,
     lastFruit: 0,
   });
   animals.push(e);
   return e;
 }
+function makeLorax(x, z) {
+  const g = new THREE.Group();
+  g.position.set(x, height(x, z) + .87, z);
+  scene.add(g);
+
+  const loraxMat = material(0xef7c1a, { roughness: 0.6 });
+  const stacheMat = material(0xf5d327, { roughness: 0.5 });
+  const eyeWhiteMat = material(0xffffff);
+  const pupilMat = material(0x1a2a3a);
+
+  ellipsoid(g, loraxMat, [0, 0, 0], [0.55, 0.65, 0.5]);
+  const stacheL = part(g, new THREE.ConeGeometry(0.22, 0.7, 8), stacheMat, [-0.25, -0.05, -0.45]);
+  stacheL.rotation.set(0.3, 0.2, -1.2);
+  const stacheR = part(g, new THREE.ConeGeometry(0.22, 0.7, 8), stacheMat, [0.25, -0.05, -0.45]);
+  stacheR.rotation.set(0.3, -0.2, 1.2);
+
+  const browL = part(g, new THREE.BoxGeometry(0.28, 0.08, 0.08), stacheMat, [-0.2, 0.35, -0.45]);
+  browL.rotation.z = -0.2;
+  const browR = part(g, new THREE.BoxGeometry(0.28, 0.08, 0.08), stacheMat, [0.2, 0.35, -0.45]);
+  browR.rotation.z = 0.2;
+
+  part(g, new THREE.SphereGeometry(0.09, 8, 8), eyeWhiteMat, [-0.18, 0.2, -0.42]);
+  part(g, new THREE.SphereGeometry(0.09, 8, 8), eyeWhiteMat, [0.18, 0.2, -0.42]);
+  const pupL = part(g, new THREE.SphereGeometry(0.05, 8, 8), pupilMat, [-0.18, 0.2, -0.49]);
+  const pupR = part(g, new THREE.SphereGeometry(0.05, 8, 8), pupilMat, [0.18, 0.2, -0.49]);
+
+  ellipsoid(g, loraxMat, [-0.55, -0.1, 0], [0.14, 0.3, 0.14]);
+  ellipsoid(g, loraxMat, [0.55, -0.1, 0], [0.14, 0.3, 0.14]);
+  ellipsoid(g, loraxMat, [-0.22, -0.65, 0], [0.15, 0.22, 0.18]);
+  ellipsoid(g, loraxMat, [0.22, -0.65, 0], [0.15, 0.22, 0.18]);
+
+  const aura = new THREE.PointLight(0xffaa00, 1.5, 5);
+  aura.position.set(0, 0, 0);
+  g.add(aura);
+
+  const e = register(g, {
+    kind: "lorax",
+    species: "lorax",
+    title: "El Lorax · Guardián de la Selva",
+    hp: 500,
+    maxHp: 500,
+    pupils: [pupL, pupR],
+    pupilMat,
+    aura,
+    home: new THREE.Vector3(x, 0, z),
+    goal: new THREE.Vector3(x, 0, z),
+    ai: "patrol",
+    aiTime: rand(1, 5),
+    flee: 0,
+    attackAt: 0,
+    phase: rand(0, TAU),
+    active: true,
+  });
+  return e;
+}
+
 makeAnimal("tapir", -12, 12);
 makeAnimal("jaguar", 27, -7);
 makeAnimal("caiman", 9, -4);
@@ -2134,6 +2251,24 @@ branch(
 makeAnimal("tucan", -7, 7);
 makeAnimal("rana", -8, 11);
 makeAnimal("rana", 13, 9);
+const loraxNPC = makeLorax(-2, 21);
+const guardianPower = { time: 0, cooldown: 0, summonCooldown: 0, target: null, aidGiven: false, summoned: false };
+const guardianShield = new THREE.Mesh(new THREE.SphereGeometry(6,24,12),new THREE.MeshBasicMaterial({color:0xe9c269,transparent:true,opacity:.075,depthWrite:false,wireframe:true}));
+guardianShield.visible=false;scene.add(guardianShield);
+function guardianProtect(summoned=false) {
+  if(!isPlaying() || (!summoned && guardianPower.cooldown>0))return;
+  guardianPower.time=7;guardianPower.cooldown=16;guardianPower.summoned=summoned;guardianPower.aidGiven=false;
+  guardianPower.target=summoned?null:animals.filter(e=>e.active && e.obj.visible && horizontalDistance(e.obj.position,player)<22).sort((a,b)=>horizontalDistance(a.obj.position,player)-horizontalDistance(b.obj.position,player))[0] || null;
+  sound.tone(330,.5,.16,330);sound.tone(495,.6,.1,165);
+  toast(summoned?'Lorax: «¡Voy contigo! Acércate a mi círculo para recibir ayuda.»':'Lorax: «¡Aquí las vidas están conectadas!» Protege a los animales dentro de su círculo durante 7 s.');
+}
+function callGuardian() {
+  if(!isPlaying())return;
+  if(guardianPower.summonCooldown>0){toast(`El Lorax se recupera: ${Math.ceil(guardianPower.summonCooldown)} s.`);return;}
+  if(state.fruit<1){toast('H · Ofrécele 1 fruta al Lorax para que venga a ayudarte.');return;}
+  state.fruit--;guardianPower.summonCooldown=25;guardianProtect(true);updateHUD();
+}
+
 for (let i = 0; i < 12; i++) {
   const g = new THREE.Group();
   ellipsoid(g, material(0xacc39d), [0, 0, 0], [0.08, 0.1, 0.28]);
@@ -2148,30 +2283,40 @@ for (let i = 0; i < 12; i++) {
   fish.push({ obj: g, phase: rand(0, TAU), radius: rand(2, 9) });
 }
 
-// Herramienta tridimensional en primera persona, renderizada con el mundo.
+// Escopeta estilizada de dos cartuchos; el modelo previo se completa con guardamanos.
 scene.add(camera);
-const spear = new THREE.Group();
-camera.add(spear);
-spear.position.set(0.43, -0.53, -0.7);
-spear.rotation.set(-0.13, 0, -0.1);
-branch(spear, [0, -1, 0.42], [0, 0.68, -0.65], 0.025, 0.018, mats.wood);
-const spearTip = part(
-  spear,
-  new THREE.ConeGeometry(0.06, 0.3, 4),
-  material(0x9da797, { metalness: 0.35, roughness: 0.45 }),
-  [0, 0.77, -0.71],
-);
-spearTip.rotation.x = -0.55;
-spear.traverse((m) => {
+const weaponGroup = new THREE.Group();
+camera.add(weaponGroup);
+weaponGroup.position.set(0.38, -0.38, -0.65);
+weaponGroup.rotation.set(-0.05, -0.1, 0);
+
+part(weaponGroup, new THREE.BoxGeometry(0.08, 0.12, 0.8), mats.wood, [0, -0.05, 0.1]);
+const barrel = part(weaponGroup, new THREE.CylinderGeometry(0.028, 0.028, 0.95, 8), material(0x2d3436, { metalness: 0.8, roughness: 0.2 }), [0, 0.02, -0.35]);
+barrel.rotation.x = Math.PI / 2;
+const scope = part(weaponGroup, new THREE.CylinderGeometry(0.015, 0.015, 0.25, 8), material(0xdbbb79, { metalness: 0.9, roughness: 0.1 }), [0, 0.065, -0.2]);
+scope.rotation.x = Math.PI / 2;
+const secondBarrel = new THREE.Mesh(barrel.geometry, barrel.material);
+secondBarrel.position.copy(barrel.position).add(new THREE.Vector3(.056,0,0));
+secondBarrel.rotation.copy(barrel.rotation);weaponGroup.add(secondBarrel);
+part(weaponGroup,new THREE.BoxGeometry(.12,.11,.3),mats.wood,[.02,-.055,-.28]);
+part(weaponGroup,new THREE.BoxGeometry(.10,.16,.16),barrel.material,[.02,-.04,.08]);
+
+const muzzleFlashMesh = part(weaponGroup, new THREE.SphereGeometry(0.12, 8, 8), material(0xffd700, { emissive: 0xffaa00, emissiveIntensity: 5, transparent: true, opacity: 0 }), [0, 0.02, -0.85]);
+const muzzleLight = new THREE.PointLight(0xffaa00, 0, 8);
+muzzleLight.position.set(0, 0.02, -0.85);
+weaponGroup.add(muzzleLight);
+
+weaponGroup.traverse((m) => {
   m.castShadow = false;
 });
-spear.visible = false;
+weaponGroup.visible = false;
+let muzzleTimer = 0;
 
 // Expedición activa: tres destinos con suministros y una observación breve.
 const fieldSites = [
-  { id: 'soil', title: 'El suelo vivo', x: -18, z: 18, reward: { fiber: 3 }, loot: '+3 fibra', fact: 'Hongos y hojarasca devuelven nutrientes al suelo. Recoger madera caída conserva el dosel.' },
-  { id: 'shore', title: 'Guardianes de la ribera', x: 22, z: 6, reward: { fruit: 2 }, loot: '+2 fruta', fact: 'Las raíces sujetan el suelo. Una ribera con vegetación ayuda a proteger el agua.' },
-  { id: 'canopy', title: 'Rutas del dosel', x: 7, z: -26, reward: { seeds: 1, wood: 2 }, loot: '+1 semilla · +2 madera', fact: 'Las copas conectadas dan rutas y refugio a la fauna que dispersa semillas.' },
+  { id: 'soil', title: 'El suelo vivo', x: -18, z: 18, reward: { fiber: 3, ammo: 2 }, loot: '+3 fibra · +2 cartuchos del puesto', fact: 'Hongos y hojarasca devuelven nutrientes al suelo. Recoger madera caída conserva el dosel.' },
+  { id: 'shore', title: 'Guardianes de la ribera', x: 22, z: 6, reward: { fruit: 2, ammo: 2 }, loot: '+2 fruta · +2 cartuchos del puesto', fact: 'Las raíces sujetan el suelo. Una ribera con vegetación ayuda a proteger el agua.' },
+  { id: 'canopy', title: 'Rutas del dosel', x: 7, z: -26, reward: { seeds: 1, wood: 2, ammo: 2 }, loot: '+1 semilla · +2 madera · +2 cartuchos del puesto', fact: 'Las copas conectadas dan rutas y refugio a la fauna que dispersa semillas.' },
 ];
 for (const [i, site] of fieldSites.entries()) {
   const g = new THREE.Group();
@@ -2268,7 +2413,7 @@ function ecology() {
   );
   const biodiversity = clamp(
     100 -
-      state.hunted * 15 -
+      Math.max(0, state.wildlifeLoss - state.restoration) -
       (state.scenario === "dispersers" ? 60 : 0) -
       (100 - forest) * 0.4,
     0,
@@ -2343,7 +2488,7 @@ function gather(e, type) {
   state[type] += n;
   gesture("gather", e.obj.position);
   e.ready = false;
-  e.regrow = state.time + 30 * (100 / Math.max(25, state.biodiversity));
+  e.regrow = state.time + 30 * (100 / Math.max(25, state.biodiversity)) * (1 + state.disperserLoss * .2 + state.predatorLoss * .1);
   e.berries.forEach((m) => (m.visible = false));
   sound.rustle(750);
   toast(
@@ -2515,27 +2660,54 @@ function build() {
   updateHUD();
 }
 function defend() {
-  if (!isPlaying() || state.thrust > 0) return;
-  state.thrust = 0.45;
-  sound.rustle(850, 0.25);
-  camera.getWorldDirection(direction);
-  let repelled = false;
-  for (const e of animals) {
-    if (!e.hostile || !e.active) continue;
-    tmp.copy(e.obj.position).sub(player);
-    tmp.y = 0;
-    if (tmp.length() < 3.6 && tmp.normalize().dot(direction) > 0.25) {
-      e.ai = "flee";
-      e.flee = state.time + 8;
-      const away = e.obj.position.clone().sub(player).setY(0).normalize();
-      e.goal.copy(e.obj.position).addScaledVector(away, 9);
-      repelled = true;
+  if (!isPlaying() || state.shotCooldown > 0 || state.reloadTime > 0) return;
+  if (!state.loaded) { toast(state.ammo ? 'Escopeta vacía · R para recargar' : 'Sin cartuchos. Busca suministros en las estaciones; puedes continuar explorando sin disparar.'); return; }
+  state.loaded--;state.shotCooldown=.85;state.thrust=.32;muzzleTimer=.075;
+  sound.init();
+  if(horizontalDistance(player,loraxNPC.obj.position)<25)guardianProtect();
+  sound.gunshot();
+  camera.updateMatrixWorld();scene.updateMatrixWorld(true);
+  const blockers=[terrain,loraxNPC.obj,...(state.shelter?[state.shelter]:[]),...fieldSites.map(s=>s.entity.obj),...trees.filter(e=>e.obj.visible).map(e=>e.obj),...bushes.map(e=>e.obj),...animals.filter(e=>e.active&&e.obj.visible).map(e=>e.obj),...scene.children.filter(o=>o.material===rockMat)];
+  const hits=new Map();
+  raycaster.far=28;
+  for(let i=0;i<7;i++) {
+    const angle=i*TAU/6;
+    const shotDirection=new THREE.Vector3(i?Math.cos(angle)*.028:0,i?Math.sin(angle)*.028:0,-1).normalize().applyQuaternion(camera.quaternion);
+    raycaster.set(camera.position,shotDirection);
+    const hit=raycaster.intersectObjects(blockers,true)[0];
+    if(!hit)continue;
+    let object=hit.object;
+    while(object && !object.userData.entity)object=object.parent;
+    const e=object?.userData.entity;
+    if(e?.kind==='animal'&&e.active) {
+      if(guardianPower.time>0 && horizontalDistance(e.obj.position,loraxNPC.obj.position)<6) {
+        guardianShield.material.color.set(0xfff0bc);
+        toast('El Lorax bloqueó el disparo: ese animal está dentro de su círculo protector.');
+      } else hits.set(e,(hits.get(e)||0)+16*(1-hit.distance/50));
     }
   }
-  if (repelled) {
-    sound.tone(80, 0.35, 0.09, -30, "sawtooth");
-    toast("El animal retrocede. Dale espacio para retirarse.");
+  raycaster.far=Infinity;
+  for(const [e,amount] of hits) {
+    e.hp=(e.hp??e.maxHp??50)-amount;
+    if(e.hp<=0)hunt(e);
   }
+  // Sound startles nearby fauna, even when the shot misses.
+  for(const e of animals) {
+    if(!e.active || horizontalDistance(e.obj.position,player)>22)continue;
+    e.ai='flee';e.flee=state.time+7;
+    if(e.travel)wildlifeGoal(e,true);
+    else e.goal.copy(e.obj.position).addScaledVector(e.obj.position.clone().sub(player).setY(0).normalize(),8);
+  }
+  $('shot-feedback').textContent=hits.size?'✕ Impacto':'Disparo';
+  shotFeedbackTime=.7;
+  updateHUD();
+}
+let shotFeedbackTime=0;
+function reloadWeapon() {
+  if(!isPlaying() || state.reloadTime>0 || state.loaded>=2)return;
+  if(!state.ammo){toast('No quedan cartuchos de reserva. Las estaciones tienen suministros de una sola recogida.');return;}
+  state.reloadTime=1.65;
+  sound.rustle(900,.18,.16);updateHUD();
 }
 function drink() {
   if (state.water < 50) {
@@ -2561,15 +2733,135 @@ function damage(n, cause) {
   if (state.health <= 0) finish(false);
 }
 function hunt(e) {
-  if (!e.active) return;
+  if (!e.active || e.kind!=='animal') return;
   e.active = false;
   e.obj.visible = false;
   state.hunted++;
-  state.food = clamp(state.food + 35, 0, 100);
-  toast(
-    "Caza: +35 alimento. Perdiste un dispersor y la biodiversidad disminuyó.",
-  );
-  resume();
+  const role=e.info?.role.toLowerCase() || species[e.species]?.role.toLowerCase() || '';
+  const disperser=role.includes('dispersor') || role.includes('frugívoro') || role.includes('frutos');
+  const predator=role.includes('depredador') || e.hostile;
+  const insect=e.info?.category==='Invertebrados';
+  const impact=predator?14:disperser?12:insect?6:9;
+  state.wildlifeLoss+=impact;
+  if(disperser)state.disperserLoss++;
+  if(predator)state.predatorLoss++;
+  const meat=insect?0:e.info?.size<.6?1:2;
+  const hide=e.info?.category==='Mamíferos' || ['tapir','jaguar','mono'].includes(e.species)?1:0;
+  state.meat+=meat;state.hides+=hide;
+  state.lastConsequence=`${e.title}: −${impact} al índice de biodiversidad. ${disperser?'Menos dispersores: la fruta tarda más en volver.':predator?'Menos depredadores: aumenta la presión sobre los recursos vegetales.':'Se pierde una pieza de la red de vida.'}`;
+  Object.assign(state,ecology());updateGuardian(0);
+  toast(`Caza · +${meat} carne · +${hide} piel. ${state.lastConsequence} I · Inventario`);
+}
+
+// Inventory is a paused screen: recipes are checked and charged atomically.
+let inventoryReturn='playing';
+function openInventory() {
+  if(state.screen==='inventory'){closeInventory();return;}
+  if(!['playing','paused'].includes(state.screen))return;
+  inventoryReturn=state.screen;setScreen('inventory');renderInventory();
+}
+function closeInventory() { if(inventoryReturn==='paused')setScreen('paused');else resume(); }
+const inventoryNames={wood:'Madera',fiber:'Fibra',fruit:'Fruta',seeds:'Semillas',meat:'Carne cruda',cookedMeat:'Raciones cocinadas',hides:'Pieles',bandages:'Vendajes',ammo:'Cartuchos de reserva'};
+const campRecipes={
+  bandage:{label:'Tejer vendaje',cost:{fiber:2,fruit:1},result:'bandages',camp:false},
+  cook:{label:'Cocinar una ración',cost:{meat:1,wood:1},result:'cookedMeat',camp:true},
+  recycle:{label:'Preparar tiras de piel',cost:{hides:1},result:'fiber',amount:3,camp:true},
+};
+function craftItem(key) {
+  const recipe=campRecipes[key];
+  if(state.screen!=='inventory'||!recipe)return;
+  if(recipe.camp&&!hasShelter()){toast('Acércate a la fogata de tu campamento.');return;}
+  if(Object.entries(recipe.cost).some(([id,n])=>state[id]<n)){toast('Faltan recursos para esta receta.');return;}
+  for(const [id,n] of Object.entries(recipe.cost))state[id]-=n;
+  state[recipe.result]+=recipe.amount||1;
+  sound.rustle(400,.15,.18);renderInventory();updateHUD();
+}
+function useInventoryItem(key) {
+  if(state.screen!=='inventory'||!['fruit','cookedMeat','bandages'].includes(key)||state[key]<1)return;
+  if(key==='bandages') {
+    if(state.health>=100&&state.poison<=0){toast('No necesitas un vendaje ahora.');return;}
+    state.health=clamp(state.health+35,0,100);state.poison=Math.max(0,state.poison-12);
+  } else {
+    if(state.food>=100){toast('Tus reservas de alimento están completas.');return;}
+    state.food=clamp(state.food+(key==='fruit'?28:45),0,100);
+    state.health=clamp(state.health+(key==='fruit'?3:6),0,100);
+  }
+  state[key]--;sound.tone(440,.15,.05,180);renderInventory();updateHUD();
+}
+function renderInventory() {
+  $('inventory-items').innerHTML=Object.entries(inventoryNames).map(([id,name])=>`<div class="inventory-item"><span>${name}</span><strong>${state[id]}</strong>${['fruit','cookedMeat','bandages'].includes(id)?`<button data-use="${id}" ${state[id]?'':'disabled'}>Usar</button>`:''}</div>`).join('');
+  $('inventory-recipes').innerHTML=Object.entries(campRecipes).map(([id,r])=>`<button class="secondary" data-craft="${id}" ${Object.entries(r.cost).some(([k,n])=>state[k]<n)||(r.camp&&!hasShelter())?'disabled':''}>${r.label} · ${Object.entries(r.cost).map(([k,n])=>`${n} ${inventoryNames[k].toLowerCase()}`).join(' + ')}${r.camp?' · Fogata':''}</button>`).join('');
+  $('inventory-status').textContent=`Escopeta ${state.loaded}/2 · ${hasShelter()?'Fogata disponible':'Cocina y trabaja pieles cerca de tu refugio'} · Salud ${Math.ceil(state.health)} · Alimento ${Math.ceil(state.food)}`;
+  $('inventory-consequence').textContent=state.lastConsequence;
+  document.querySelectorAll('[data-use]').forEach(b=>b.onclick=()=>useInventoryItem(b.dataset.use));
+  document.querySelectorAll('[data-craft]').forEach(b=>b.onclick=()=>craftItem(b.dataset.craft));
+}
+
+function updateGuardian(dt) {
+  state.loraxAnger=clamp((100-state.eco)*1.1+Math.max(0,state.wildlifeLoss-state.restoration)*.5,0,100);
+  state.loraxMode=state.loraxAnger>45?'alarmed':state.loraxAnger>15?'concerned':'pacific';
+  const g=loraxNPC.obj;
+  guardianPower.time=Math.max(0,guardianPower.time-dt);
+  guardianPower.cooldown=Math.max(0,guardianPower.cooldown-dt);
+  guardianPower.summonCooldown=Math.max(0,guardianPower.summonCooldown-dt);
+  const defending=guardianPower.time>0;
+  const destination=defending?(guardianPower.summoned?player:guardianPower.target?.active?guardianPower.target.obj.position:player):loraxNPC.home;
+  const distance=horizontalDistance(g.position,destination);
+  if(distance>(defending?2:1)) {
+    const step=Math.min(distance,dt*(defending?4.5:1.4));
+    const x=g.position.x+(destination.x-g.position.x)/distance*step;
+    const z=g.position.z+(destination.z-g.position.z)/distance*step;
+    if(!wet(x,z)){g.position.x=x;g.position.z=z;}
+  }
+  guardianShield.visible=defending;
+  guardianShield.position.set(g.position.x,height(g.position.x,g.position.z)+.25,g.position.z);
+  guardianShield.material.opacity=.045+Math.sin(state.time*5)*.02;
+  if(defending) {
+    for(const animal of animals) {
+      if(!animal.active || !animal.hostile || horizontalDistance(animal.obj.position,g.position)>7)continue;
+      animal.flee=state.time+2;animal.ai='flee';
+      animal.goal.copy(animal.obj.position).addScaledVector(animal.obj.position.clone().sub(g.position).setY(0).normalize(),8);
+    }
+    if(guardianPower.summoned && !guardianPower.aidGiven && horizontalDistance(g.position,player)<5) {
+      guardianPower.aidGiven=true;state.health=clamp(state.health+20,0,100);state.poison=Math.max(0,state.poison-10);
+      toast('El Lorax te protege · +20 salud y menos veneno. Los depredadores cercanos retroceden.');
+      sound.tone(550,.4,.14,330);
+    }
+  }
+  g.position.y=height(g.position.x,g.position.z)+.87+Math.sin(state.time*1.6)*.025;
+  const angle=Math.atan2(-(player.x-g.position.x),-(player.z-g.position.z));
+  g.rotation.y+=Math.atan2(Math.sin(angle-g.rotation.y),Math.cos(angle-g.rotation.y))*Math.min(1,dt*2);
+  loraxNPC.aura.color.set(state.loraxMode==='alarmed'?0xff5930:0xffce61);
+  loraxNPC.aura.intensity=state.quality==='low'?0:.7;
+}
+function guardianProgress() {
+  const q=state.guardianQuest;
+  return q && state.planted>=q.planted+2 && state.guardianGifts>=q.gifts+3 && state.observed.size>=q.observed+1;
+}
+function guardianDialog() {
+  const q=state.guardianQuest;
+  $('dialog-title').textContent='El Lorax · Hablo por los árboles';
+  $('dialog-category').textContent=state.loraxMode==='alarmed'?'EL BOSQUE ESTÁ EN RIESGO':state.loraxMode==='concerned'?'FALTAN VOCES EN LA SELVA':'GUARDIÁN DEL BOSQUE';
+  $('dialog-latin').textContent='Personaje fantástico · Consecuencias del modelo de juego';
+  $('dialog-body').textContent=state.hunted?`${state.hunted} animales han desaparecido. La carne ayuda hoy, pero la pérdida de fauna cambia lo que encontrarás mañana.`:'Puedes vivir de frutos y ramas caídas, o cazar para cocinar y fabricar. Mira qué cambia en el bosque después de cada decisión.';
+  $('dialog-fact').textContent=q?`Pacto de restauración: ${Math.min(2,Math.max(0,state.planted-q.planted))}/2 árboles nuevos · ${Math.min(3,state.guardianGifts-q.gifts)}/3 frutas aportadas · ${Math.min(1,Math.max(0,state.observed.size-q.observed))}/1 especie nueva. Recupera 8 puntos del índice perdido por caza; no revive animales.`:state.lastConsequence;
+  const box=$('dialog-actions');box.replaceChildren();
+  const button=(text,fn,disabled=false)=>{const b=document.createElement('button');b.className='secondary';b.textContent=text;b.disabled=disabled;b.onclick=fn;box.append(b);};
+  if(!q)button('Aceptar pacto · +2 semillas y +2 madera para comenzar',()=>{
+    if(state.guardianQuest)return;
+    state.guardianQuest={planted:state.planted,gifts:state.guardianGifts,observed:state.observed.size};
+    state.seeds+=2;state.wood+=2;guardianDialog();updateHUD();
+  },state.observed.size>=Object.keys(species).length);
+  else {
+    button('Aportar 1 fruta al vivero',()=>{if(state.fruit<1||state.guardianGifts>=q.gifts+3)return;state.fruit--;state.guardianGifts++;guardianDialog();updateHUD();},state.fruit<1||state.guardianGifts>=q.gifts+3);
+    button('Completar pacto · +100 puntos, 1 vendaje y restauración',()=>{
+      if(!guardianProgress())return;
+      state.restoration=Math.min(state.wildlifeLoss,state.restoration+8);state.fieldScore+=100;state.bandages++;state.guardianRewards++;state.guardianQuest=null;
+      Object.assign(state,ecology());updateGuardian(0);guardianDialog();updateHUD();sound.tone(600,.4,.07,350);
+    },!guardianProgress());
+  }
+  button('Volver a explorar',resume);
+  setScreen('dialog');
 }
 function dropFruit(e) {
   const g = ellipsoid(
@@ -2596,6 +2888,7 @@ const screens = {
   paused: "pause",
   dialog: "dialog",
   journal: "journal",
+  inventory: 'inventory',
   ending: "ending",
 };
 function setScreen(next) {
@@ -2605,7 +2898,7 @@ function setScreen(next) {
   Object.values(screens).forEach((id) => ($(id).hidden = true));
   if (screens[next]) $(screens[next]).hidden = false;
   $("hud").hidden = next === "welcome";
-  spear.visible = next === "playing";
+  weaponGroup.visible = next === "playing";
   arms.visible = next === "playing";
   if (next !== "playing") {
     velocity.set(0, 0, 0);
@@ -2648,6 +2941,7 @@ function resume() {
 function begin(explore = false) {
   state.explore = explore;
   sound.init();
+  sound.tone(440,.25,.15,220);
   player.y = height(player.x, player.z);
   resume();
   toast(
@@ -2662,6 +2956,7 @@ function pause() {
 }
 function dialog(e) {
   if (!isPlaying()) return;
+  if(e.kind==='lorax'){guardianDialog();return;}
   const s = species[e.species];
   if (s) observe(e);
   $("dialog-category").textContent = s?.role || "RECURSO DE CAMPO";
@@ -2700,8 +2995,6 @@ function dialog(e) {
       false,
       !e.alive,
     );
-  if (e.species === "tapir")
-    action("Cazar · +35 alimento / pierdes un dispersor", () => hunt(e));
   if (e.kind === "water") {
     $("dialog-title").textContent = "La laguna";
     $("dialog-category").textContent = "FACTOR ABIÓTICO · AGUA";
@@ -2762,6 +3055,7 @@ function renderJournal() {
     html = `<span class="eyebrow">LABORATORIO DE CONSECUENCIAS</span><h3>¿Qué pasaría si una pieza cambiara?</h3><p>Elige una alteración, cierra el cuaderno y explora sus efectos. Puedes restaurar el escenario para comparar; tus decisiones de supervivencia permanecen.</p><div class="scenario-grid"><button class="scenario ${state.scenario === "forest" ? "active" : ""}" data-scenario="forest">01 / COBERTURA<strong>Perdemos bosque</strong>Retira una parte del dosel.<br>Menos refugio y protección del suelo.</button><button class="scenario ${state.scenario === "water" ? "active" : ""}" data-scenario="water">02 / AGUA<strong>La laguna se contamina</strong>Agua turbia, menos actividad acuática y riesgo al beber.</button><button class="scenario ${state.scenario === "dispersers" ? "active" : ""}" data-scenario="dispersers">03 / BIODIVERSIDAD<strong>Faltan dispersores</strong>Desaparecen tapir, mono y tucán.<br>La fruta se regenera más lento.</button></div><p class="consequence">${state.scenario === "forest" ? "Pérdida de dosel → menos sombra y hábitat → más presión sobre suelo y agua → menor equilibrio." : state.scenario === "water" ? "Contaminación → deterioro del medio acuático → menos peces y ranas visibles → riesgo para consumidores, incluido el jugador." : state.scenario === "dispersers" ? "Pérdida de fauna frugívora → menos dispersión de semillas → regeneración vegetal limitada → menos alimento futuro." : "El bosque conserva sus relaciones. Selecciona un escenario para experimentar."}</p><div class="result-grid"><span>${Math.round(data.forest)}%<small>COBERTURA</small></span><span>${Math.round(data.water)}%<small>AGUA</small></span><span>${Math.round(data.biodiversity)}%<small>BIODIVERSIDAD</small></span></div><button class="reset-scenario" id="reset-scenario">Restaurar escenario inicial</button><p>Porcentajes ilustrativos de un modelo de juego. No son mediciones científicas ni pronósticos.</p>`;
   if (journalPage === "discoveries")
     html = `<span class="eyebrow">REGISTROS DE CAMPO</span><h3>${state.observed.size} hallazgos · ${state.fieldScore} puntos</h3><p>Registra 3 especies, visita las 3 estaciones, construye tu campamento y planta 2 árboles. Vuelve al refugio con al menos 70% de equilibrio para completar la expedición.</p><div>${[...state.observed].map((key) => `<span class="discovery">✓ ${species[key].name}<br><small>${species[key].role}</small></span>`).join("") || '<p>Empieza por el hongo o el arbusto cercano al sendero.</p>'}</div><h3>Tu ruta de campo</h3>${fieldSites.map(site => `<article class="consequence"><strong>${state.sites.has(site.id)?'✓':'○'} ${site.title}</strong><p>${state.sites.has(site.id)?site.fact:'Explora esta estación para conocer su función en el bosque.'}</p><small>Suministros: ${site.loot} · 75 puntos, una sola vez.</small></article>`).join('')}<h3>Tu huella en el bosque</h3><p>${state.planted} plantones · ${state.cut} árboles talados · ${state.hunted} animales cazados · ${state.shelter?'campamento construido':'sin campamento'}.</p><p class="consequence">${state.naturalistBadge?'★ Insignia Naturalista conseguida':'Reto extra: registra 8 especies sin talar ni cazar para ganar la insignia Naturalista y 150 puntos.'}</p>`;
+  if(['discoveries','scenarios'].includes(journalPage))html+=`<article class="consequence"><h3>Caza y restauración</h3><p>${state.hunted} animales cazados · ${state.disperserLoss} dispersores · ${state.predatorLoss} depredadores. Pérdida acumulada del índice: ${state.wildlifeLoss}; recuperación de hábitat: ${state.restoration}.</p><p>${state.lastConsequence}</p><p>La fruta tarda más en regenerarse y el ambiente se vuelve más silencioso al perder fauna. Busca al Lorax junto al sendero inicial para aceptar un pacto de restauración. Restaurar un escenario no revive animales cazados.</p></article>`;
   $("journal-content").innerHTML = html;
   document
     .querySelectorAll("[data-scenario]")
@@ -2804,7 +3098,7 @@ function updateHUD() {
       .closest(".vital")
       .classList.toggle("critical", v < 25);
   }
-  for (const id of ["wood", "fiber", "fruit", "seeds"])
+  for (const id of ["wood", "fiber", "fruit", "seeds", 'meat', 'hides', 'ammo'])
     $(id).textContent = state[id];
   $("eco-value").innerHTML = `${Math.round(state.eco)}<small>%</small>`;
   $("eco-ring").style.strokeDashoffset = 113.1 * (1 - state.eco / 100);
@@ -2846,6 +3140,8 @@ function updateHUD() {
     .join("");
   $('expedition-guide').textContent = expeditionGuide();
   $('expedition-score').textContent = `${state.fieldScore} puntos · ${state.observed.size} especies · ${state.sites.size}/3 estaciones${state.naturalistBadge?' · ★ Naturalista':''}`;
+  $('weapon-status').textContent=state.reloadTime>0?`Recargando ${state.reloadTime.toFixed(1)} s`:`Escopeta ${state.loaded}/2 · Reserva ${state.ammo} · R recargar`;
+  $('guardian-status').textContent=guardianPower.time>0?`Lorax protege · ${Math.ceil(guardianPower.time)} s · Radio 6 m`:`Lorax: ${state.loraxMode==='alarmed'?'alarmado':state.loraxMode==='concerned'?'preocupado':'tranquilo'} · H llamar (1 fruta)${guardianPower.summonCooldown>0?` · ${Math.ceil(guardianPower.summonCooldown)} s`:''}`;
   const degrees = ((((-yaw * 180) / Math.PI) % 360) + 360) % 360;
   const headings = ["N", "NE", "E", "SE", "S", "SO", "O", "NO"];
   $("heading").textContent =
@@ -2883,7 +3179,7 @@ renderer.domElement.addEventListener("mousedown", (e) => {
   }
   if (e.button === 0) {
     if (document.pointerLockElement === renderer.domElement || state.controller)
-      interact();
+      defend();
     else lockMouse();
   }
 });
@@ -2897,7 +3193,8 @@ document.addEventListener("keydown", (e) => {
   if (e.repeat) return;
   if (["Space", "ArrowUp", "ArrowDown"].includes(e.code)) e.preventDefault();
   if (e.code === "Escape") {
-    if (state.screen === "dialog") setScreen("paused");
+    if (state.screen === 'inventory') closeInventory();
+    else if (state.screen === "dialog") setScreen("paused");
     else if (state.screen === "journal") closeJournal();
     else if (isPlaying()) setScreen("paused");
     return;
@@ -2910,10 +3207,13 @@ document.addEventListener("keydown", (e) => {
     openJournal();
     return;
   }
+  if(e.code==='KeyI'){openInventory();return;}
   if (!isPlaying()) return;
   keys.add(e.code);
   if (e.code === "KeyE") interact();
   if (e.code === "KeyF") defend();
+  if (e.code === 'KeyR') reloadWeapon();
+  if (e.code === 'KeyH') callGuardian();
   if (e.code === "KeyP") plant();
   if (e.code === "KeyB") build();
   if (e.code === "KeyC") consume();
@@ -2945,6 +3245,9 @@ function pollPad(dt) {
   else if (isPlaying()) {
     if (pressed(0)) interact();
     if (pressed(1)) defend();
+    if (pressed(5)) reloadWeapon();
+    if (pressed(10)) openInventory();
+    if (pressed(12)) callGuardian();
     if (pressed(2)) build();
     if (pressed(3)) plant();
     if (pressed(7)) consume();
@@ -2968,7 +3271,8 @@ function pollPad(dt) {
       if (buttons.includes(focused)) focused.click();
     }
     if (pressed(1)) {
-      if (state.screen === "journal") closeJournal();
+      if (state.screen === 'inventory') closeInventory();
+      else if (state.screen === "journal") closeJournal();
       else if (state.screen === "dialog" || state.screen === "paused") resume();
     }
   }
@@ -2996,6 +3300,8 @@ $("build-button").onclick = build;
 $("plant-button").onclick = plant;
 $("eat-button").onclick = consume;
 $("audio-button").onclick = () => sound.mute();
+$('inventory-button').onclick = $('pause-inventory').onclick = openInventory;
+$('inventory-close').onclick = closeInventory;
 document.querySelectorAll("[data-page]").forEach(
   (b) =>
     (b.onclick = () => {
@@ -3514,7 +3820,7 @@ function updateAnimals(dt) {
       );
       if (kind === "serpiente") state.poison = 22;
       sound.tone(85, 0.35, 0.14, -40, "sawtooth");
-      toast("Mantén distancia. F / B del mando para repeler.");
+      toast("Mantén distancia o busca refugio. F / B del mando dispara; I abre los vendajes.");
     }
   }
   fish.forEach((f, i) => {
@@ -3592,7 +3898,7 @@ function environment(dt, t) {
   staticContact.visible = contact.visible = state.quality !== 'low';
   windUniform.value = t * 0.7;
   pollen.rotation.y = t * 0.003;
-  fireflies.material.opacity = (1 - day) * 0.85;
+  fireflies.material.opacity = (1 - day) * 0.85 * (state.biodiversity/100);
   fireflies.rotation.y = -t * 0.01;
   glows.forEach((m) => (m.material.emissiveIntensity = 0.15 + (1 - day) * 2));
   const raining = t % 120 > 75 && t % 120 < 106;
@@ -3621,7 +3927,7 @@ function environment(dt, t) {
   }
   if (sound.ctx)
     sound.ambient.gain.setTargetAtTime(
-      state.rain ? 0.9 : 0.16,
+      state.rain ? 0.9 : .38,
       sound.ctx.currentTime,
       0.4,
     );
@@ -4062,6 +4368,8 @@ function makeExpandedWildlife(info, x, z, index) {
     ai: 'patrol', aiTime: 2 + index % 4, flee: 0, attackAt: 0,
     phase: index * 2.399, active: true, hostile: false, lastFruit: 0,
     baseScale: g.scale.clone(), presence: 1, motion: 0,
+    hp: info.size > .8 ? 65 : 40,
+    maxHp: info.size > .8 ? 65 : 40,
     visualMeshes: [],
   });
   const flying=isBird || ['murcielago','abeja','mariposa'].includes(id);
@@ -4105,7 +4413,7 @@ const sleeveMat = material(0x627369, { roughness: 1 }),
 const leftHand = new THREE.Group(),
   rightHand = new THREE.Group();
 arms.add(leftHand);
-spear.add(rightHand);
+weaponGroup.add(rightHand);
 function makeHand(parent, side) {
   branch(
     parent,
@@ -4146,7 +4454,7 @@ function makeHand(parent, side) {
 }
 makeHand(leftHand, -1);
 makeHand(rightHand, 1);
-rightHand.position.set(-0.25, 0.65, 0.45);
+rightHand.position.set(-0.23, 0.34, 0.45);
 const heldFruit = ellipsoid(
   leftHand,
   mats.fruit,
@@ -4531,7 +4839,18 @@ let hudTimer = 0,
   birdTimer = 3;
 function tick(dt, gp) {
   state.time += dt;
+  state.shotCooldown=Math.max(0,state.shotCooldown-dt);
+  if(state.reloadTime>0){
+    state.reloadTime=Math.max(0,state.reloadTime-dt);
+    if(state.reloadTime===0){const count=Math.min(2-state.loaded,state.ammo);state.loaded+=count;state.ammo-=count;sound.rustle(600,.13,.13);updateHUD();}
+  }
+  muzzleTimer=Math.max(0,muzzleTimer-dt);
+  muzzleFlashMesh.material.opacity=muzzleTimer>0?.85:0;
+  muzzleLight.intensity=muzzleTimer>0?2.5:0;
+  shotFeedbackTime=Math.max(0,shotFeedbackTime-dt);
+  if(!shotFeedbackTime)$('shot-feedback').textContent='';
   Object.assign(state, ecology());
+  updateGuardian(dt);
   updatePlayer(dt, gp);
   updateAim();
   updateAnimals(dt);
@@ -4560,17 +4879,17 @@ function tick(dt, gp) {
     state.attack > 0 ? 0.6 : state.health < 25 ? 0.25 : 0;
   state.thrust = Math.max(0, state.thrust - dt);
   actionTime = Math.max(0, actionTime - dt);
-  const swing = Math.sin((state.thrust / 0.45) * Math.PI);
-  spear.position.set(
-    0.43 - swing * 0.13,
-    -0.53 + swing * 0.1,
-    -0.7 - swing * 0.65,
+  const swing = Math.sin((state.thrust / .32) * Math.PI);
+  weaponGroup.position.set(
+    .38,
+    -.38 + swing * .035 - (state.reloadTime>0?.18:0),
+    -.65 + swing * .12,
   );
   const action = Math.sin(Math.PI * clamp(1 - actionTime / 0.8, 0, 1));
-  spear.position.x += Math.sin(state.time * 8) * locomotion * 0.012;
-  spear.position.y +=
+  weaponGroup.position.x += Math.sin(state.time * 8) * locomotion * 0.012;
+  weaponGroup.position.y +=
     Math.cos(state.time * 16) * locomotion * 0.012 - action * 0.12;
-  spear.rotation.x = -0.13 - swing * 0.4 + action * 0.22;
+  weaponGroup.rotation.x = -.05 + swing * .12 + action * .22 + (state.reloadTime>0?.45:0);
   arms.visible = isPlaying();
   arms.position.y = Math.cos(state.time * 8) * locomotion * 0.012;
   leftHand.rotation.x = action * (actionKind === "eat" ? -1.25 : 0.6);
